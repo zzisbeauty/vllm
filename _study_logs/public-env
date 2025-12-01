@@ -3,9 +3,7 @@
 - 部署 vllm 服务运行模型的对话 https://deepwiki.com/search/-vllm-python-c-dockerfile_5b96eb2d-2bff-491d-adb0-d1e308b0a7ae?mode=fast
 
 
-### _方案一_
-
-使用官方镜像 run a container，这样子可以快速部署 vllm 以快速加载 model 开始使用。official image 内部已经编译安装了 vllm
+### _方案一_ 使用官方镜像 run a container，这样子可以快速部署 vllm 以快速加载 model 开始使用。official image 内部已经编译安装了 vllm
 
 https://deepwiki.com/search/-docker-run-runtime-nvidia-gpu_c013061f-b7f6-4b68-8e78-33ca297bb566?mode=fast
 
@@ -13,15 +11,13 @@ https://deepwiki.com/search/-docker-run-runtime-nvidia-gpu_c013061f-b7f6-4b68-8e
 
 - 1. chmod +x run-vllm-model-server-container.sh  （执行一次即可） (`vllm/_study_logs/run-vllm-model-server-container.sh`)
 
-- 2. ./run-vllm-model-server-container.sh Qwen3-4B-Thinking-2507 
+- 2. `./run-vllm-model-server-container.sh Qwen3-4B-Thinking-2507`
 
     上述命令中有指定 model name
 
 
 
-### _方案二_
-
-自行 build 本地 image https://deepwiki.com/search/-v-vllm-cd-homenvidiadesktopvl_cc6083ba-7d29-409d-87f2-eb440062bab3?mode=fast
+### _方案二_ 自行 build 本地 image https://deepwiki.com/search/-v-vllm-cd-homenvidiadesktopvl_cc6083ba-7d29-409d-87f2-eb440062bab3?mode=fast
 
 ```shell
 # 此过程没有编译或者安装 vllm，单纯的构建一个 pure 开发运行环境

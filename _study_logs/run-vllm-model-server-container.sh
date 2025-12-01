@@ -1,10 +1,8 @@
 #!/bin/bash  
 
-# 此 sh 脚本是使用 vllm 官方镜像，直接启动服务
-# 使用方法: ./switch-vllm-model.sh <模型名称>  
-# 例如: ./switch-vllm-model.sh qwen2.5-0.5b-instruct  
-
-
+# 此 sh 脚本是使用 vllm 官方镜像，直接启动服务; 用方法: ./switch-vllm-model.sh <模型名称>  
+#                               例如: ./switch-vllm-model.sh qwen2.5-0.5b-instruct  
+#                               这种方式更换模型，需要删除原来的容器，基于新模型重启新容器
 
 set -e
 
