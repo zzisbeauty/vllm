@@ -91,7 +91,7 @@ cd /workspace
 # model path /localmodels/Qwen3-4B-Thinking-2507
 vllm serve /localmodels/Qwen3-4B-Thinking-2507 \
     --gpu-memory-utilization 0.7 \
-    --max-model-len 10000 \
+    --max-model-len 20000 \
     --max-num-seqs 1 \
     --port 8000
 ```
