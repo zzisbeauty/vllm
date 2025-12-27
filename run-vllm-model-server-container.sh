@@ -7,8 +7,8 @@
 set -e
 
 # 配置变量
-CONTAINER_NAME="vllm-server-base-official-image"  
-LOCAL_MODELS_DIR="/home/nvidia/Desktop/localmodels"  
+CONTAINER_NAME="vllm-server-base-official-image"    # 启动的容器名称
+LOCAL_MODELS_DIR="/home/nvidia/Desktop/volumes-models"  
 CONTAINER_MODELS_DIR="/app/models"  
 PORT=1127
 
