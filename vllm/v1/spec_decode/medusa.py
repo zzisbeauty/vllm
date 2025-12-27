@@ -38,16 +38,16 @@ class MedusaProposer:
         self,
         target_hidden_states: torch.Tensor,
         sampling_metadata: SamplingMetadata,
-    ) -> torch.Tensor:
+    ) -> list[list[int]]:
         # Generate blocks and compute logits
         blocks = self.model(target_hidden_states)
         logits = self.model.compute_logits(blocks)
 
-        # Compute argmax for each Medusa head and stack into a single tensor
-        # Shape: [batch_size, num_heads]
-        draft_tokens = torch.stack([logit.argmax(dim=-1) for logit in logits], dim=1)
-
-        return draft_tokens
+        # Get draft tokens and transpose the result
+        # TODO(woosuk): OPTIMIZATION: Return GPU tensor without GPU-CPU
+        # synchronization.
+        draft_tokens = [logit.argmax(dim=-1).tolist() for logit in logits]
+        return [list(row) for row in zip(*draft_tokens)]
 
     def load_model(self, target_model: nn.Module) -> None:
         from vllm.compilation.backends import set_model_tag

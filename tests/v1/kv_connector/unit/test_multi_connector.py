@@ -20,7 +20,6 @@ from vllm.distributed.kv_transfer.kv_connector.v1.multi_connector import (
 from vllm.distributed.kv_transfer.kv_connector.v1.nixl_connector import (
     NixlKVConnectorStats,
 )
-from vllm.platforms import current_platform
 
 MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
 
@@ -70,16 +69,9 @@ def _compare_directories(dir1: Path, dir2: Path) -> bool:
     return True
 
 
-@pytest.mark.skipif(
-    current_platform.is_rocm(),
-    reason=(
-        "hipErrorLaunchFailure when running this test, see issue:"
-        "https://github.com/ROCm/pytorch/issues/2822"
-    ),
-)
-def test_multi_example_connector_consistency():
+def test_multi_shared_storage_connector_consistency():
     """
-    Tests that MultiConnector with two ExampleConnectors saves
+    Tests that MultiConnector with two SharedStorageConnectors saves
     identical KV cache data to separate storage locations.
     """
     storage_1_path = Path("storage_1/")
@@ -89,14 +81,14 @@ def test_multi_example_connector_consistency():
     storage_1_path.mkdir()
     storage_2_path.mkdir()
 
-    # Configure MultiConnector with two ExampleConnectors
+    # Configure MultiConnector with two SharedStorageConnectors
     kv_transfer_config = KVTransferConfig(
         kv_connector="MultiConnector",
         kv_role="kv_both",
         kv_connector_extra_config={
             "connectors": [
                 {
-                    "kv_connector": "TestExampleConnector",
+                    "kv_connector": "TestSharedStorageConnector",
                     "kv_role": "kv_both",
                     "kv_connector_extra_config": {
                         "shared_storage_path": str(storage_1_path),
@@ -105,7 +97,7 @@ def test_multi_example_connector_consistency():
                     "kv_connector_module_path": "tests.v1.kv_connector.unit.utils",
                 },
                 {
-                    "kv_connector": "TestExampleConnector",
+                    "kv_connector": "TestSharedStorageConnector",
                     "kv_role": "kv_both",
                     "kv_connector_extra_config": {
                         "shared_storage_path": str(storage_2_path),
@@ -427,7 +419,7 @@ class TestMultiConnectorStats:
 
     def test_build_kv_connector_stats_skips_connectors_without_custom_stats(self):
         """Test that connectors without custom stats (return None) are skipped."""
-        # ExampleConnector doesn't override build_kv_connector_stats,
+        # SharedStorageConnector doesn't override build_kv_connector_stats,
         # so it returns None and should be skipped
         serialized_data = {
             "NixlConnector": {
@@ -440,7 +432,7 @@ class TestMultiConnectorStats:
                     "num_failed_notifications": [],
                 }
             },
-            "ExampleConnector": {"data": {"some_field": [1, 2, 3]}},
+            "SharedStorageConnector": {"data": {"some_field": [1, 2, 3]}},
         }
 
         stats = MultiConnector.build_kv_connector_stats(data=serialized_data)
@@ -451,8 +443,8 @@ class TestMultiConnectorStats:
         assert len(stats.data) == 1
         assert "NixlConnector" in stats.data
         assert isinstance(stats.data["NixlConnector"], NixlKVConnectorStats)
-        # ExampleConnector should be skipped (returns None)
-        assert "ExampleConnector" not in stats.data
+        # SharedStorageConnector should be skipped (returns None)
+        assert "SharedStorageConnector" not in stats.data
 
     def test_build_kv_connector_stats_handles_malformed_data(self):
         """Test that malformed data raises appropriate errors."""
@@ -527,13 +519,13 @@ class TestMultiConnectorStats:
         )
 
         stats2 = MultiKVConnectorStats(
-            data={"ExampleConnector": KVConnectorStats(data={"field": [1, 2]})}
+            data={"SharedStorageConnector": KVConnectorStats(data={"field": [1, 2]})}
         )
 
         result = stats1.aggregate(stats2)
 
         assert "NixlConnector" in result.data
-        assert "ExampleConnector" in result.data
+        assert "SharedStorageConnector" in result.data
 
     def test_reduce(self):
         """Test that reduce() correctly reduces all nested connector stats."""

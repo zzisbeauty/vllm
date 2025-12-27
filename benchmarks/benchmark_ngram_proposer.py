@@ -32,11 +32,12 @@ def benchmark_propose(args):
 
         model_config = ModelConfig(
             model="facebook/opt-125m",
+            task="generate",
             max_model_len=args.num_token + args.num_spec_token,
             tokenizer="facebook/opt-125m",
             tokenizer_mode="auto",
             dtype="auto",
-            seed=0,
+            seed=None,
             trust_remote_code=False,
         )
         proposer = NgramProposer(
@@ -107,10 +108,7 @@ def benchmark_batched_propose(args):
         device_config=DeviceConfig(device=current_platform.device_type),
         parallel_config=ParallelConfig(),
         load_config=LoadConfig(),
-        scheduler_config=SchedulerConfig(
-            max_model_len=model_config.max_model_len,
-            is_encoder_decoder=model_config.is_encoder_decoder,
-        ),
+        scheduler_config=SchedulerConfig(),
     )
 
     # monkey patch vllm.v1.worker.gpu_model_runner.get_pp_group

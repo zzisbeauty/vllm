@@ -14,10 +14,12 @@ from vllm.model_executor.layers.pooler import (
     PoolerHead,
     PoolerNormalize,
     PoolingParamsUpdate,
+    get_prompt_lens,
+    get_prompt_token_ids,
 )
 from vllm.model_executor.models.llama import LlamaForCausalLM
 from vllm.tasks import PoolingTask
-from vllm.tokenizers import cached_tokenizer_from_config
+from vllm.transformers_utils.tokenizer import cached_tokenizer_from_config
 from vllm.v1.outputs import PoolerOutput
 from vllm.v1.pool.metadata import PoolingMetadata
 
@@ -151,11 +153,11 @@ class GritLMMeanPool(nn.Module):
         hidden_states: torch.Tensor | list[torch.Tensor],
         pooling_metadata: PoolingMetadata,
     ) -> list[torch.Tensor] | torch.Tensor:
-        prompt_lens = pooling_metadata.prompt_lens
+        prompt_lens = get_prompt_lens(hidden_states, pooling_metadata)
         instr_lens = torch.tensor(
             [
                 self._get_instruction_len(token_ids.cpu().numpy())
-                for token_ids in pooling_metadata.get_prompt_token_ids()
+                for token_ids in get_prompt_token_ids(pooling_metadata)
             ],
             device="cpu",
         )

@@ -16,16 +16,6 @@ from vllm.platforms import current_platform
 MTP_SIMILARITY_RATE = 0.8
 
 
-def _skip_if_insufficient_gpus_for_tp(tp_size: int):
-    """Skip test if available GPUs < tp_size on ROCm."""
-    if current_platform.is_rocm():
-        available_gpus = torch.cuda.device_count()
-        if available_gpus < tp_size:
-            pytest.skip(
-                f"Test requires {tp_size} GPUs, but only {available_gpus} available"
-            )
-
-
 def get_test_prompts(mm_enabled: bool):
     prompt_types = ["repeat", "sentence"]
     if mm_enabled:
@@ -201,8 +191,8 @@ def test_suffix_decoding_acceptance(
     # Expect the acceptance rate to improve.
     assert first_accept_rate < last_accept_rate
 
-    # Heuristic: expect at least 80.0% acceptance rate at the end.
-    assert last_accept_rate > 0.80
+    # Heuristic: expect at least 85% acceptance rate at the end.
+    assert last_accept_rate > 0.85
 
     del spec_llm
     torch.cuda.empty_cache()
@@ -290,34 +280,9 @@ def test_speculators_model_integration(
 
 
 @pytest.mark.parametrize(
-    ["model_setup", "mm_enabled", "enable_chunked_prefill", "model_impl"],
+    ["model_setup", "mm_enabled", "enable_chunked_prefill"],
     [
-        (
-            ("eagle3", "Qwen/Qwen3-8B", "AngelSlim/Qwen3-8B_eagle3", 1),
-            False,
-            False,
-            "auto",
-        ),
-        (
-            ("eagle3", "Qwen/Qwen3-8B", "AngelSlim/Qwen3-8B_eagle3", 1),
-            False,
-            False,
-            "transformers",
-        ),
-        pytest.param(
-            (
-                "eagle3",
-                "Qwen/Qwen3-VL-8B-Instruct",
-                "taobao-mnn/Qwen3-VL-8B-Instruct-Eagle3",
-                1,
-            ),
-            False,
-            False,
-            "auto",
-            marks=pytest.mark.skip(
-                reason="architecture of its eagle3 is LlamaForCausalLMEagle3"
-            ),
-        ),
+        (("eagle3", "Qwen/Qwen3-8B", "AngelSlim/Qwen3-8B_eagle3", 1), False, False),
         pytest.param(
             (
                 "eagle3",
@@ -327,7 +292,6 @@ def test_speculators_model_integration(
             ),
             False,
             False,
-            "auto",
             marks=pytest.mark.skip(
                 reason="Skipping due to its head_dim not being a a multiple of 32"
             ),
@@ -341,7 +305,6 @@ def test_speculators_model_integration(
             ),
             False,
             True,
-            "auto",
             marks=large_gpu_mark(min_gb=40),
         ),  # works on 4x H100
         (
@@ -353,7 +316,6 @@ def test_speculators_model_integration(
             ),
             False,
             False,
-            "auto",
         ),
         pytest.param(
             (
@@ -364,7 +326,6 @@ def test_speculators_model_integration(
             ),
             False,
             False,
-            "auto",
             marks=large_gpu_mark(min_gb=80),
         ),  # works on 4x H100
         pytest.param(
@@ -376,7 +337,6 @@ def test_speculators_model_integration(
             ),
             True,
             True,
-            "auto",
             marks=large_gpu_mark(min_gb=80),
         ),  # works on 4x H100
         (
@@ -388,13 +348,10 @@ def test_speculators_model_integration(
             ),
             False,
             False,
-            "auto",
         ),
     ],
     ids=[
         "qwen3_eagle3",
-        "qwen3_eagle3-transformers",
-        "qwen3_vl_eagle3",
         "qwen2_5_vl_eagle3",
         "llama3_eagle",
         "llama3_eagle3",
@@ -410,7 +367,6 @@ def test_eagle_correctness(
     model_setup: tuple[str, str, str, int],
     mm_enabled: bool,
     enable_chunked_prefill: bool,
-    model_impl: str,
     attn_backend: str,
 ):
     if attn_backend == "TREE_ATTN":
@@ -419,17 +375,6 @@ def test_eagle_correctness(
             "TREE_ATTN is flaky in the test disable for now until it can be "
             "resolved (see https://github.com/vllm-project/vllm/issues/22922)"
         )
-    if model_impl == "transformers":
-        import transformers
-        from packaging.version import Version
-
-        installed = Version(transformers.__version__)
-        required = Version("5.0.0.dev")
-        if installed < required:
-            pytest.skip(
-                "Eagle3 with the Transformers modeling backend requires "
-                f"transformers>={required}, but got {installed}"
-            )
 
     # Generate test prompts inside the function instead of using fixture
     test_prompts = get_test_prompts(mm_enabled)
@@ -443,11 +388,7 @@ def test_eagle_correctness(
             # Scout requires default backend selection
             # because vision encoder has head_dim 88 being incompatible
             #  with FLASH_ATTN and needs to fall back to Flex Attn
-
-            # pass if not ROCm
-            if current_platform.is_rocm():
-                # TODO: Enable Flex Attn for spec_decode on ROCm
-                pytest.skip("Flex Attn for spec_decode not supported on ROCm currently")
+            pass
         else:
             m.setenv("VLLM_MLA_DISABLE", "1")
             m.setenv("VLLM_ATTENTION_BACKEND", attn_backend)
@@ -458,15 +399,10 @@ def test_eagle_correctness(
                 "multi-token eagle spec decode on current platform"
             )
 
-        if attn_backend == "ROCM_AITER_FA" and current_platform.is_rocm():
-            if "deepseek" in model_setup[1].lower():
-                pytest.skip("ROCM_AITER_FA for deepseek not supported on ROCm platform")
-            else:
-                m.setenv("VLLM_ROCM_USE_AITER", "1")
+        if attn_backend == "FLASH_ATTN" and current_platform.is_rocm():
+            m.setenv("VLLM_ROCM_USE_AITER", "1")
 
         method, model_name, spec_model_name, tp_size = model_setup
-        _skip_if_insufficient_gpus_for_tp(tp_size)
-
         max_model_len = 2048
         max_num_batched_tokens = 128 if enable_chunked_prefill else max_model_len
 
@@ -491,7 +427,6 @@ def test_eagle_correctness(
             max_model_len=max_model_len,
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=enable_chunked_prefill,
-            model_impl=model_impl,
         )
         spec_outputs = spec_llm.chat(test_prompts, sampling_config)
         matches = 0
@@ -537,7 +472,6 @@ def test_mtp_correctness(
         m.setenv("VLLM_MLA_DISABLE", "1")
 
         method, model_name, tp_size = model_setup
-        _skip_if_insufficient_gpus_for_tp(tp_size)
 
         ref_llm = LLM(
             model=model_name,

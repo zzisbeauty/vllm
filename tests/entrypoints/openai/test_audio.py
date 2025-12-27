@@ -254,9 +254,7 @@ async def test_single_chat_session_input_audio(
 async def test_chat_streaming_audio(
     client: openai.AsyncOpenAI, model_name: str, audio_url: str
 ):
-    messages = dummy_messages_from_audio_url(
-        audio_url, "What's a short title for this audio?"
-    )
+    messages = dummy_messages_from_audio_url(audio_url)
 
     # test single completion
     chat_completion = await client.chat.completions.create(

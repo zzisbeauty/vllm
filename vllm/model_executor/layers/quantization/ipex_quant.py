@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+from collections.abc import Callable
 from typing import Any, Optional
 
 import torch
@@ -27,10 +28,6 @@ from vllm.model_executor.layers.quantization.awq import AWQLinearMethod
 from vllm.model_executor.layers.quantization.fp8 import Fp8Config, Fp8LinearMethod
 from vllm.model_executor.layers.quantization.gptq import GPTQLinearMethod
 from vllm.model_executor.layers.quantization.utils.quant_utils import is_layer_skipped
-from vllm.model_executor.layers.quantization.utils.w8a8_utils import (
-    maybe_create_device_identity,
-)
-from vllm.model_executor.parameter import ModelWeightParameter
 from vllm.model_executor.utils import set_weight_attrs
 from vllm.platforms import current_platform
 
@@ -137,7 +134,7 @@ class IPEXConfig(QuantizationConfig):
     def override_quantization_method(
         cls, hf_quant_cfg, user_quant
     ) -> QuantizationMethods | None:
-        if not current_platform.is_xpu():
+        if not current_platform.is_cpu() and not current_platform.is_xpu():
             return None
 
         quant_method = hf_quant_cfg.get("quant_method", "").lower()
@@ -153,10 +150,7 @@ class IPEXConfig(QuantizationConfig):
         if isinstance(layer, LinearBase):
             if self.method == "awq":
                 if is_layer_skipped(
-                    prefix,
-                    self.modules_to_not_convert,
-                    self.packed_modules_mapping,
-                    skip_with_substr=True,
+                    prefix, self.modules_to_not_convert, self.packed_modules_mapping
                 ):
                     return UnquantizedLinearMethod()
                 return IPEXAWQLinearMethod(self)
@@ -309,37 +303,6 @@ class XPUFp8LinearMethod(Fp8LinearMethod):
     def __init__(self, quant_config: Fp8Config):
         super().__init__(quant_config)
 
-    def create_weights(
-        self,
-        layer: torch.nn.Module,
-        input_size_per_partition: int,
-        output_partition_sizes: list[int],
-        input_size: int,
-        output_size: int,
-        params_dtype: torch.dtype,
-        **extra_weight_attrs,
-    ):
-        maybe_create_device_identity()
-
-        output_size_per_partition = sum(output_partition_sizes)
-        weight_loader = extra_weight_attrs.get("weight_loader")
-        layer.logical_widths = output_partition_sizes
-        layer.input_size_per_partition = input_size_per_partition
-        layer.output_size_per_partition = output_size_per_partition
-        layer.orig_dtype = params_dtype
-        layer.weight_block_size = None
-        weight = ModelWeightParameter(
-            data=torch.empty(
-                output_size_per_partition,
-                input_size_per_partition,
-                dtype=params_dtype,
-            ),
-            input_dim=1,
-            output_dim=0,
-            weight_loader=weight_loader,
-        )
-        layer.register_parameter("weight", weight)
-
     def process_weights_after_loading(self, layer: Module) -> None:
         # If checkpoint not serialized fp8, quantize the weights.
         if not self.quant_config.is_checkpoint_fp8_serialized:
@@ -474,14 +437,31 @@ class XPUFp8MoEMethod(FusedMoEMethodBase):
         layer: torch.nn.Module,
         x: torch.Tensor,
         router_logits: torch.Tensor,
+        top_k: int,
+        renormalize: bool,
+        use_grouped_topk: bool = False,
+        topk_group: int | None = None,
+        num_expert_group: int | None = None,
+        global_num_experts: int = -1,
+        expert_map: torch.Tensor | None = None,
+        custom_routing_function: Callable | None = None,
+        scoring_func: str = "softmax",
+        routed_scaling_factor: float = 1.0,
+        e_score_correction_bias: torch.Tensor | None = None,
+        apply_router_weight_on_input: bool = False,
+        activation: str = "silu",
+        enable_eplb: bool = False,
+        expert_load_view: torch.Tensor | None = None,
+        logical_to_physical_map: torch.Tensor | None = None,
+        logical_replica_count: torch.Tensor | None = None,
     ) -> torch.Tensor:
         return layer.ipex_fusion(
             x,
-            layer.use_grouped_topk,
-            layer.top_k,
+            use_grouped_topk,
+            top_k,
             router_logits,
-            layer.renormalize,
-            layer.topk_group,
-            layer.num_expert_group,
-            custom_routing_function=layer.custom_routing_function,
+            renormalize,
+            topk_group,
+            num_expert_group,
+            custom_routing_function=custom_routing_function,
         )

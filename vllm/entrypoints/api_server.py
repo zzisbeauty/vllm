@@ -118,7 +118,6 @@ async def init_app(
         )
     )
     app.state.engine_client = engine
-    app.state.args = args
     return app
 
 

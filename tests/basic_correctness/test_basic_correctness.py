@@ -13,14 +13,11 @@ import pytest
 import torch
 
 from vllm import LLM
-from vllm.platforms import current_platform
 from vllm.v1.engine.llm_engine import LLMEngine
 
 from ..conftest import HfRunner, VllmRunner
 from ..models.utils import check_outputs_equal
 from ..utils import multi_gpu_test
-
-ATTN_BACKEND = ["ROCM_ATTN"] if current_platform.is_rocm() else ["FLASH_ATTN"]
 
 MODELS = [
     "hmellor/tiny-random-Gemma2ForCausalLM",
@@ -60,7 +57,7 @@ def _fix_prompt_embed_outputs(
 
 
 @pytest.mark.parametrize("model", MODELS)
-@pytest.mark.parametrize("backend", ATTN_BACKEND)
+@pytest.mark.parametrize("backend", ["FLASH_ATTN"])
 @pytest.mark.parametrize("max_tokens", [5])
 @pytest.mark.parametrize("enforce_eager", [False])
 @pytest.mark.parametrize("async_scheduling", [True, False])
@@ -77,6 +74,9 @@ def test_models(
     model_executor: str,
     enable_prompt_embeds: bool,
 ) -> None:
+    if backend == "XFORMERS" and model == "google/gemma-2-2b-it":
+        pytest.skip(f"{backend} does not support gemma2 with full context length.")
+
     with monkeypatch.context() as m:
         m.setenv("VLLM_ATTENTION_BACKEND", backend)
 

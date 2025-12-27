@@ -984,6 +984,8 @@ class Phi4MMForCausalLM(nn.Module, SupportsLoRA, SupportsMultiModal):
     Implements the Phi-4-multimodal-instruct model in vLLM.
     """
 
+    merge_by_field_config = True
+
     packed_modules_mapping = {
         "qkv_proj": [
             "qkv_proj",

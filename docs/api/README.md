@@ -15,7 +15,6 @@ API documentation for vLLM's configuration classes.
 - [vllm.config.MultiModalConfig][]
 - [vllm.config.PoolerConfig][]
 - [vllm.config.StructuredOutputsConfig][]
-- [vllm.config.ProfilerConfig][]
 - [vllm.config.ObservabilityConfig][]
 - [vllm.config.KVTransferConfig][]
 - [vllm.config.CompilationConfig][]

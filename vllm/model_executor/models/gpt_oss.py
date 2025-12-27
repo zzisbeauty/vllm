@@ -7,14 +7,12 @@ import torch.distributed as dist
 from torch import nn
 from transformers import GptOssConfig
 
-from vllm.attention.backends.abstract import AttentionType
-from vllm.attention.layer import Attention
+from vllm.attention import Attention, AttentionType
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import CacheConfig, VllmConfig
 from vllm.distributed import (
     get_dp_group,
     get_ep_group,
-    get_pcp_group,
     get_pp_group,
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
@@ -67,18 +65,18 @@ class OAIAttention(nn.Module):
 
         self.rotary_emb = get_rope(
             self.head_dim,
+            rotary_dim=self.head_dim,
             max_position=config.max_position_embeddings,
+            base=config.rope_theta,
             dtype=torch.float32,
-            rope_parameters={
-                "rope_theta": config.rope_parameters["rope_theta"],
+            rope_scaling={
                 "rope_type": "yarn",
-                "factor": config.rope_parameters["factor"],
-                "original_max_position_embeddings": config.rope_parameters[
+                "factor": config.rope_scaling["factor"],
+                "original_max_position_embeddings": config.rope_scaling[
                     "original_max_position_embeddings"
                 ],
-                "beta_fast": config.rope_parameters["beta_fast"],
-                "beta_slow": config.rope_parameters["beta_slow"],
-                "truncate": config.rope_parameters.get("truncate", True),
+                "beta_fast": config.rope_scaling["beta_fast"],
+                "beta_slow": config.rope_scaling["beta_slow"],
             },
             is_neox_style=True,
         )
@@ -92,6 +90,7 @@ class OAIAttention(nn.Module):
         self.q_size = self.num_attention_heads * self.head_dim // tp_size
         self.kv_size = self.num_key_value_heads * self.head_dim // tp_size
         self.scaling = self.head_dim**-0.5
+        self.rope_theta = config.rope_theta
 
         self.qkv_proj = QKVParallelLinear(
             hidden_size=self.hidden_size,
@@ -324,12 +323,10 @@ class GptOssModel(nn.Module):
 
         # In MoE, we need to flatten the tensor parallel size across the data
         # parallel size when EP is disabled.
-        tp_size, tp_rank = FusedMoEParallelConfig.flatten_tp_across_dp_and_pcp(
+        tp_size, tp_rank = FusedMoEParallelConfig.flatten_tp_across_dp(
             tp_size=get_tensor_model_parallel_world_size(),
             dp_size=get_dp_group().world_size,
             dp_rank=get_dp_group().rank_in_group,
-            pcp_size=get_pcp_group().world_size,
-            pcp_rank=get_pcp_group().rank_in_group,
         )
 
         intermediate_size = self.config.intermediate_size
@@ -511,12 +508,10 @@ class GptOssModel(nn.Module):
 
         # In MoE, we need to flatten the tensor parallel size across the data
         # parallel size when EP is disabled.
-        tp_size, tp_rank = FusedMoEParallelConfig.flatten_tp_across_dp_and_pcp(
+        tp_size, tp_rank = FusedMoEParallelConfig.flatten_tp_across_dp(
             tp_size=get_tensor_model_parallel_world_size(),
             dp_size=get_dp_group().world_size,
             dp_rank=get_dp_group().rank_in_group,
-            pcp_size=get_pcp_group().world_size,
-            pcp_rank=get_pcp_group().rank_in_group,
         )
 
         intermediate_size = self.config.intermediate_size
@@ -646,8 +641,8 @@ class GptOssModel(nn.Module):
             )
         else:
             return self._load_weights_other(
-                ep_rank_end,
                 ep_rank_start,
+                ep_rank_end,
                 heads_per_rank,
                 head_start,
                 weights,
@@ -656,7 +651,6 @@ class GptOssModel(nn.Module):
 
 
 class GptOssForCausalLM(nn.Module, SupportsPP, SupportsEagle3, SupportsLoRA):
-    is_3d_moe_weight: bool = True
     packed_modules_mapping = {"qkv_proj": ["q_proj", "k_proj", "v_proj"]}
 
     hf_to_vllm_mapper = WeightsMapper(

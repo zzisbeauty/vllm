@@ -16,8 +16,8 @@ from transformers import (
 )
 from transformers.models.whisper.modeling_whisper import sinusoids
 
-from vllm.attention.backends.abstract import AttentionType
-from vllm.attention.layer import Attention, MultiHeadAttention
+from vllm.attention import Attention, AttentionType
+from vllm.attention.layer import MultiHeadAttention
 from vllm.attention.layers.cross_attention import CrossAttention
 from vllm.config import CacheConfig, ModelConfig, SpeechToTextConfig, VllmConfig
 from vllm.config.multimodal import BaseDummyOptions
@@ -48,7 +48,7 @@ from vllm.multimodal.processing import (
     PromptUpdate,
 )
 from vllm.multimodal.profiling import BaseDummyInputsBuilder
-from vllm.transformers_utils.processor import cached_processor_from_config
+from vllm.transformers_utils.processor import cached_get_processor
 from vllm.utils.jsontree import json_map_leaves
 from vllm.utils.tensor_schema import TensorSchema, TensorShape
 from vllm.utils.torch_utils import set_default_torch_dtype
@@ -522,7 +522,6 @@ class WhisperEncoder(nn.Module):
 
     def forward(self, input_features: torch.Tensor | list[torch.Tensor]):
         hidden_states = []
-        input_is_batched = False
         for features in input_features:
             embeds = nn.functional.gelu(self.conv1(features))
             embeds = nn.functional.gelu(self.conv2(embeds))
@@ -531,13 +530,7 @@ class WhisperEncoder(nn.Module):
                 embeds.dtype
             )
             hidden_states.append(embeds)
-            input_is_batched = embeds.ndim > 2
-        # Input to MHA must be B x T x D
-        if input_is_batched:
-            # Models using WhisperEncoder may handle batching internally.
-            hidden_states = torch.cat(hidden_states)
-        else:
-            hidden_states = torch.stack(hidden_states, dim=0)
+        hidden_states = torch.cat(hidden_states)
 
         for encoder_layer in self.layers:
             hidden_states = encoder_layer(hidden_states)
@@ -606,15 +599,15 @@ class WhisperModel(nn.Module):
 
     def forward(
         self,
+        input_features: torch.Tensor | list[torch.Tensor] | None,
         input_ids: torch.Tensor | None,
         positions: torch.Tensor,
-        encoder_outputs: list[torch.Tensor],
     ) -> torch.Tensor:
-        enc_states = torch.cat(encoder_outputs, dim=0) if len(encoder_outputs) else None
+        encoder_outputs = self.get_encoder_outputs(input_features)
         decoder_outputs = self.decoder(
             input_ids=input_ids,
             positions=positions,
-            encoder_hidden_states=enc_states,
+            encoder_hidden_states=encoder_outputs,
         )
         return decoder_outputs
 
@@ -781,6 +774,7 @@ class WhisperMultiModalProcessor(EncDecMultiModalProcessor[WhisperProcessingInfo
 class WhisperForConditionalGeneration(
     nn.Module, SupportsTranscription, SupportsMultiModal
 ):
+    merge_by_field_config = True
     packed_modules_mapping = {
         "self_attn.qkv_proj": [
             "self_attn.q_proj",
@@ -796,7 +790,6 @@ class WhisperForConditionalGeneration(
 
     # Whisper only supports audio-conditioned generation.
     supports_transcription_only = True
-    supports_segment_timestamp = True
     supported_languages = ISO639_1_SUPPORTED_LANGS
 
     @classmethod
@@ -855,7 +848,7 @@ class WhisperForConditionalGeneration(
     def get_speech_to_text_config(
         cls, model_config: ModelConfig, task_type: str
     ) -> SpeechToTextConfig:
-        processor = cached_processor_from_config(model_config)
+        processor = cached_get_processor(model_config.model)
 
         return SpeechToTextConfig(
             max_audio_clip_s=processor.feature_extractor.chunk_length,
@@ -869,7 +862,7 @@ class WhisperForConditionalGeneration(
         stt_config: SpeechToTextConfig,
         model_config: ModelConfig,
     ) -> int | None:
-        processor = cached_processor_from_config(model_config)
+        processor = cached_get_processor(model_config.model)
         hop_length = processor.feature_extractor.hop_length
         assert hop_length is not None
         # NOTE(NickLucche) user can't pass encoder
@@ -901,15 +894,13 @@ class WhisperForConditionalGeneration(
         self,
         input_ids: torch.Tensor,
         positions: torch.Tensor,
-        encoder_outputs: list[torch.Tensor] | None = None,
         **kwargs,
     ) -> torch.Tensor:
-        if encoder_outputs is None:
-            encoder_outputs = []
+        audio_input = self._parse_and_validate_audio_input(**kwargs)
         decoder_outputs = self.model(
+            input_features=audio_input["input_features"],
             input_ids=input_ids,
             positions=positions,
-            encoder_outputs=encoder_outputs,
         )
         return decoder_outputs
 
@@ -919,10 +910,7 @@ class WhisperForConditionalGeneration(
     def embed_multimodal(self, **kwargs: object) -> MultiModalEmbeddings:
         # Required as part of SupportsMultiModal interface.
         audio_input = self._parse_and_validate_audio_input(**kwargs)
-        # Split concatenated encoder outputs into one tensor per audio input
-        enc_output = self.model.get_encoder_outputs(audio_input["input_features"])
-        # The assumption is we can only process whole mm items (audios)
-        return enc_output.unbind(dim=0)
+        return [self.model.get_encoder_outputs(audio_input["input_features"])]
 
     def embed_input_ids(
         self,

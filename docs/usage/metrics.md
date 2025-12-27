@@ -33,19 +33,11 @@ Then query the endpoint to get the latest metrics from the server:
 
 The following metrics are exposed:
 
-## General Metrics
+??? code
 
---8<-- "docs/generated/metrics/general.md"
-
-## Speculative Decoding Metrics
-
---8<-- "docs/generated/metrics/spec_decode.md"
-
-## NIXL KV Connector Metrics
-
---8<-- "docs/generated/metrics/nixl_connector.md"
-
-## Deprecation Policy
+    ```python
+    --8<-- "vllm/engine/metrics.py:metrics-definitions"
+    ```
 
 Note: when metrics are deprecated in version `X.Y`, they are hidden in version `X.Y+1`
 but can be re-enabled using the `--show-hidden-metrics-for-version=X.Y` escape hatch,

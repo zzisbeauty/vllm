@@ -222,47 +222,6 @@ def test_media_io_kwargs_parser(arg, expected):
     assert args.media_io_kwargs == expected
 
 
-@pytest.mark.parametrize(
-    ("args", "expected"),
-    [
-        (["-O", "1"], "1"),
-        (["-O", "2"], "2"),
-        (["-O", "3"], "3"),
-        (["-O0"], "0"),
-        (["-O1"], "1"),
-        (["-O2"], "2"),
-        (["-O3"], "3"),
-    ],
-)
-def test_optimization_level(args, expected):
-    """
-    Test space-separated optimization levels (-O 1, -O 2, -O 3) map to
-    optimization_level.
-    """
-    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
-    parsed_args = parser.parse_args(args)
-    assert parsed_args.optimization_level == expected
-    assert parsed_args.compilation_config.mode is None
-
-
-@pytest.mark.parametrize(
-    ("args", "expected"),
-    [
-        (["-cc.mode=0"], 0),
-        (["-cc.mode=1"], 1),
-        (["-cc.mode=2"], 2),
-        (["-cc.mode=3"], 3),
-    ],
-)
-def test_mode_parser(args, expected):
-    """
-    Test compilation config modes (-cc.mode=int) map to compilation_config.
-    """
-    parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
-    parsed_args = parser.parse_args(args)
-    assert parsed_args.compilation_config.mode == expected
-
-
 def test_compilation_config():
     parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
 
@@ -270,17 +229,34 @@ def test_compilation_config():
     args = parser.parse_args([])
     assert args.compilation_config == CompilationConfig()
 
+    # set to O3
+    args = parser.parse_args(["-O0"])
+    assert args.compilation_config.mode == 0
+
+    # set to O 3 (space)
+    args = parser.parse_args(["-O", "1"])
+    assert args.compilation_config.mode == 1
+
+    # set to O 3 (equals)
+    args = parser.parse_args(["-O=2"])
+    assert args.compilation_config.mode == 2
+
+    # set to O.mode 3
+    args = parser.parse_args(["-O.mode", "3"])
+    assert args.compilation_config.mode == 3
+
     # set to string form of a dict
     args = parser.parse_args(
         [
-            "-cc",
-            '{"mode": 3, "cudagraph_capture_sizes": [1, 2, 4, 8], "backend": "eager"}',
+            "-O",
+            '{"mode": 3, "cudagraph_capture_sizes": [1, 2, 4, 8], '
+            '"use_inductor": false}',
         ]
     )
     assert (
         args.compilation_config.mode == 3
         and args.compilation_config.cudagraph_capture_sizes == [1, 2, 4, 8]
-        and args.compilation_config.backend == "eager"
+        and not args.compilation_config.use_inductor
     )
 
     # set to string form of a dict
@@ -288,13 +264,13 @@ def test_compilation_config():
         [
             "--compilation-config="
             '{"mode": 3, "cudagraph_capture_sizes": [1, 2, 4, 8], '
-            '"backend": "inductor"}',
+            '"use_inductor": true}',
         ]
     )
     assert (
         args.compilation_config.mode == 3
         and args.compilation_config.cudagraph_capture_sizes == [1, 2, 4, 8]
-        and args.compilation_config.backend == "inductor"
+        and args.compilation_config.use_inductor
     )
 
 
@@ -302,9 +278,8 @@ def test_prefix_cache_default():
     parser = EngineArgs.add_cli_args(FlexibleArgumentParser())
     args = parser.parse_args([])
 
-    # should be None by default (depends on model).
     engine_args = EngineArgs.from_cli_args(args=args)
-    assert engine_args.enable_prefix_caching is None
+    assert not engine_args.enable_prefix_caching, "prefix caching defaults to off."
 
     # with flag to turn it on.
     args = parser.parse_args(["--enable-prefix-caching"])
@@ -350,35 +325,21 @@ def test_human_readable_model_len():
     assert args.max_model_len == 1_000_000
     args = parser.parse_args(["--max-model-len", "10k"])
     assert args.max_model_len == 10_000
-    args = parser.parse_args(["--max-model-len", "2g"])
-    assert args.max_model_len == 2_000_000_000
-    args = parser.parse_args(["--max-model-len", "2t"])
-    assert args.max_model_len == 2_000_000_000_000
 
     # Capital
     args = parser.parse_args(["--max-model-len", "3K"])
-    assert args.max_model_len == 2**10 * 3
+    assert args.max_model_len == 1024 * 3
     args = parser.parse_args(["--max-model-len", "10M"])
     assert args.max_model_len == 2**20 * 10
-    args = parser.parse_args(["--max-model-len", "4G"])
-    assert args.max_model_len == 2**30 * 4
-    args = parser.parse_args(["--max-model-len", "4T"])
-    assert args.max_model_len == 2**40 * 4
 
     # Decimal values
     args = parser.parse_args(["--max-model-len", "10.2k"])
     assert args.max_model_len == 10200
     # ..truncated to the nearest int
-    args = parser.parse_args(["--max-model-len", "10.2123451234567k"])
+    args = parser.parse_args(["--max-model-len", "10.212345k"])
     assert args.max_model_len == 10212
-    args = parser.parse_args(["--max-model-len", "10.2123451234567m"])
-    assert args.max_model_len == 10212345
-    args = parser.parse_args(["--max-model-len", "10.2123451234567g"])
-    assert args.max_model_len == 10212345123
-    args = parser.parse_args(["--max-model-len", "10.2123451234567t"])
-    assert args.max_model_len == 10212345123456
 
     # Invalid (do not allow decimals with binary multipliers)
-    for invalid in ["1a", "pwd", "10.24", "1.23M", "1.22T"]:
+    for invalid in ["1a", "pwd", "10.24", "1.23M"]:
         with pytest.raises(ArgumentError):
-            parser.parse_args(["--max-model-len", invalid])
+            args = parser.parse_args(["--max-model-len", invalid])

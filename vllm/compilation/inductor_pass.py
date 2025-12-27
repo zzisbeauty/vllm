@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from __future__ import annotations
-
 import functools
 import hashlib
 import inspect
@@ -10,16 +8,13 @@ import json
 import types
 from collections.abc import Callable
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 from torch import fx
 from torch._subclasses.fake_tensor import FakeTensorMode, unset_fake_temporarily
 
 from vllm.utils.torch_utils import is_torch_equal_or_newer
-
-if TYPE_CHECKING:
-    from vllm.config.utils import Range
 
 if is_torch_equal_or_newer("2.6"):
     from torch._inductor.custom_graph_pass import CustomGraphPass
@@ -33,8 +28,8 @@ _pass_context = None
 
 
 class PassContext:
-    def __init__(self, compile_range: Range):
-        self.compile_range: Range = compile_range
+    def __init__(self, runtime_shape: int | None):
+        self.runtime_shape = runtime_shape
 
 
 def get_pass_context() -> PassContext:
@@ -44,13 +39,13 @@ def get_pass_context() -> PassContext:
 
 
 @contextmanager
-def pass_context(compile_range: Range):
+def pass_context(runtime_shape: int | None):
     """A context manager that stores the current pass context,
     usually it is a list of sizes to specialize.
     """
     global _pass_context
     prev_context = _pass_context
-    _pass_context = PassContext(compile_range)
+    _pass_context = PassContext(runtime_shape)
     try:
         yield
     finally:
@@ -101,7 +96,7 @@ class InductorPass(CustomGraphPass):
         encoded = json.dumps(dict_, sort_keys=True).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
-    def is_applicable_for_range(self, compile_range: Range):
+    def is_applicable(self, shape: int | None):
         return True
 
 

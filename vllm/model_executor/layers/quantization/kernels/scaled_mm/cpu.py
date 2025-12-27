@@ -19,15 +19,14 @@ from .ScaledMMLinearKernel import ScaledMMLinearKernel, ScaledMMLinearLayerConfi
 
 class CPUScaledMMLinearKernel(ScaledMMLinearKernel):
     @classmethod
-    def is_supported(
-        cls, compute_capability: int | None = None
-    ) -> tuple[bool, str | None]:
-        if not current_platform.is_cpu():
-            return False, "Requires CPU."
-        return True, None
+    def get_min_capability(cls) -> int:
+        return 75
 
     @classmethod
     def can_implement(cls, c: ScaledMMLinearLayerConfig) -> tuple[bool, str | None]:
+        if not current_platform.is_cpu():
+            return False, "CPUScaledMM requires running on CPU."
+
         return True, None
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:

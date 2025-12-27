@@ -13,6 +13,7 @@ from vllm.model_executor.models import (
 )
 from vllm.model_executor.models.adapters import (
     as_embedding_model,
+    as_reward_model,
     as_seq_cls_model,
 )
 from vllm.model_executor.models.registry import (
@@ -45,6 +46,7 @@ def test_registry_imports(model_arch):
     # All vLLM models should be convertible to a pooling model
     assert is_pooling_model(as_seq_cls_model(model_cls))
     assert is_pooling_model(as_embedding_model(model_cls))
+    assert is_pooling_model(as_reward_model(model_cls))
 
     if model_arch in _MULTIMODAL_MODELS:
         assert supports_multimodal(model_cls)

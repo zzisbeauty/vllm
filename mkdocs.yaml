@@ -51,7 +51,6 @@ hooks:
   - docs/mkdocs/hooks/remove_announcement.py
   - docs/mkdocs/hooks/generate_examples.py
   - docs/mkdocs/hooks/generate_argparse.py
-  - docs/mkdocs/hooks/generate_metrics.py
   - docs/mkdocs/hooks/url_schemes.py
 
 plugins:

@@ -298,6 +298,8 @@ class KimiVLMultiModalProcessor(BaseMultiModalProcessor[KimiVLProcessingInfo]):
     dummy_inputs=KimiVLDummyInputsBuilder,
 )
 class KimiVLForConditionalGeneration(nn.Module, SupportsMultiModal, SupportsPP):
+    merge_by_field_config = True
+
     supports_encoder_tp_data = True
 
     @classmethod

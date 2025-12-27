@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import hashlib
 import uuid
 from dataclasses import field
 from typing import Any, Literal, get_args
@@ -8,7 +9,6 @@ from typing import Any, Literal, get_args
 from pydantic.dataclasses import dataclass
 
 from vllm.config.utils import config
-from vllm.utils.hashing import safe_hash
 
 KVProducer = Literal["kv_producer", "kv_both"]
 KVConsumer = Literal["kv_consumer", "kv_both"]
@@ -64,11 +64,6 @@ class KVTransferConfig:
     enable_permute_local_kv: bool = False
     """Experiment feature flag to enable HND to NHD KV Transfer"""
 
-    kv_load_failure_policy: Literal["recompute", "fail"] = "recompute"
-    """Policy for handling KV cache load failures.
-    'recompute': reschedule the request to recompute failed blocks (default)
-    'fail': immediately fail the request with an error finish reason"""
-
     def compute_hash(self) -> str:
         """
         WARNING: Whenever a new field is added to this config,
@@ -84,7 +79,7 @@ class KVTransferConfig:
         # no factors to consider.
         # this config will not affect the computation graph.
         factors: list[Any] = []
-        hash_str = safe_hash(str(factors).encode(), usedforsecurity=False).hexdigest()
+        hash_str = hashlib.md5(str(factors).encode(), usedforsecurity=False).hexdigest()
         return hash_str
 
     def __post_init__(self) -> None:

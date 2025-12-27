@@ -36,6 +36,7 @@ from typing import Any, Literal
 import aiohttp
 import numpy as np
 from tqdm.asyncio import tqdm
+from transformers import PreTrainedTokenizerBase
 
 from vllm.benchmarks.datasets import SampleRequest, add_dataset_parser, get_samples
 from vllm.benchmarks.lib.endpoint_request_func import (
@@ -46,7 +47,7 @@ from vllm.benchmarks.lib.endpoint_request_func import (
 )
 from vllm.benchmarks.lib.ready_checker import wait_for_endpoint
 from vllm.benchmarks.lib.utils import convert_to_pytorch_benchmark_format, write_to_json
-from vllm.tokenizers import TokenizerLike, get_tokenizer
+from vllm.transformers_utils.tokenizer import get_tokenizer
 from vllm.utils.gc_utils import freeze_gc_heap
 from vllm.utils.network_utils import join_host_port
 
@@ -235,9 +236,7 @@ async def get_request(
 
 
 def calculate_metrics_for_embeddings(
-    outputs: list[RequestFuncOutput],
-    dur_s: float,
-    selected_percentiles: list[float],
+    outputs: list[RequestFuncOutput], dur_s: float, selected_percentiles: list[float]
 ) -> EmbedBenchmarkMetrics:
     """Calculate the metrics for the embedding requests.
 
@@ -287,7 +286,7 @@ def calculate_metrics(
     input_requests: list[SampleRequest],
     outputs: list[RequestFuncOutput],
     dur_s: float,
-    tokenizer: TokenizerLike,
+    tokenizer: PreTrainedTokenizerBase,
     selected_percentiles: list[float],
     goodput_config_dict: dict[str, float],
 ) -> tuple[BenchmarkMetrics, list[int]]:
@@ -490,7 +489,7 @@ async def benchmark(
     base_url: str,
     model_id: str,
     model_name: str,
-    tokenizer: TokenizerLike,
+    tokenizer: PreTrainedTokenizerBase,
     input_requests: list[SampleRequest],
     logprobs: int | None,
     request_rate: float,
@@ -790,7 +789,7 @@ async def benchmark(
         )
     print(
         "{:<40} {:<10.2f}".format(
-            "Total token throughput (tok/s):", metrics.total_token_throughput
+            "Total Token throughput (tok/s):", metrics.total_token_throughput
         )
     )
 
@@ -1006,7 +1005,7 @@ def add_cli_args(parser: argparse.ArgumentParser):
         help="Key-value pairs (e.g, --header x-additional-info=0.3.3) "
         "for headers to be passed with each request. These headers override "
         "per backend constants and values set via environment variable, and "
-        "will be overridden by other arguments (such as request ids).",
+        "will be overriden by other arguments (such as request ids).",
     )
     parser.add_argument(
         "--max-concurrency",
@@ -1032,19 +1031,6 @@ def add_cli_args(parser: argparse.ArgumentParser):
         "--tokenizer",
         type=str,
         help="Name or path of the tokenizer, if not using the default tokenizer.",  # noqa: E501
-    )
-    parser.add_argument(
-        "--tokenizer-mode",
-        type=str,
-        default="auto",
-        help="""Tokenizer mode:\n
-        - "auto" will use the tokenizer from `mistral_common` for Mistral models
-        if available, otherwise it will use the "hf" tokenizer.\n
-        - "hf" will use the fast tokenizer if available.\n
-        - "slow" will always use the slow tokenizer.\n
-        - "mistral" will always use the tokenizer from `mistral_common`.\n
-        - "deepseek_v32" will always use the tokenizer from `deepseek_v32`.\n
-        - Other custom values can be supported via plugins.""",
     )
     parser.add_argument("--use-beam-search", action="store_true")
     parser.add_argument(
@@ -1099,7 +1085,8 @@ def add_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--profile",
         action="store_true",
-        help="Use vLLM Profiling. --profiler-config must be provided on the server.",
+        help="Use Torch Profiler. The endpoint must be launched with "
+        "VLLM_TORCH_PROFILER_DIR to enable profiler.",
     )
     parser.add_argument(
         "--save-result",
@@ -1151,7 +1138,7 @@ def add_cli_args(parser: argparse.ArgumentParser):
         "--percentile-metrics",
         type=str,
         default=None,
-        help="Comma-separated list of selected metrics to report percentiles. "
+        help="Comma-separated list of selected metrics to report percentils. "
         "This argument specifies the metrics to report percentiles. "
         'Allowed metric names are "ttft", "tpot", "itl", "e2el". '
         'If not specified, defaults to "ttft,tpot,itl" for generative models '
@@ -1234,11 +1221,17 @@ def add_cli_args(parser: argparse.ArgumentParser):
         help="Repetition penalty sampling parameter. Only has effect on "
         "openai-compatible backends.",
     )
-    sampling_group.add_argument(
-        "--common-prefix-len",
-        type=int,
-        default=None,
-        help="Common prefix length shared by all prompts (used by random dataset)",
+
+    parser.add_argument(
+        "--tokenizer-mode",
+        type=str,
+        default="auto",
+        choices=["auto", "slow", "mistral", "custom"],
+        help='The tokenizer mode.\n\n* "auto" will use the '
+        'fast tokenizer if available.\n* "slow" will '
+        "always use the slow tokenizer. \n* "
+        '"mistral" will always use the `mistral_common` tokenizer. \n*'
+        '"custom" will use --tokenizer to select the preregistered tokenizer.',
     )
 
     parser.add_argument(

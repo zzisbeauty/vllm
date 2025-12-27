@@ -42,8 +42,7 @@ def create_scheduler(
     model: str = "facebook/opt-125m",
     max_num_seqs: int = 16,
     max_num_batched_tokens: int = 8192,
-    enable_chunked_prefill: bool = True,
-    enable_prefix_caching: bool = False,
+    enable_prefix_caching: bool | None = None,
     long_prefill_token_threshold: int = 0,
     disable_chunked_mm_input: bool = False,
     use_kv_connector: None | bool | MockKVConfig = None,
@@ -64,18 +63,11 @@ def create_scheduler(
       max_num_batch_tokens: max num tokens to batch
       enable_prefix_caching: optionally force APC config
                              (True/False) or use default
-                             (False)
+                             (None)
 
     Returns:
       {class}`Scheduler` instance
     """
-    model_config = ModelConfig(
-        model=model,
-        trust_remote_code=True,
-        dtype="float16",
-        seed=42,
-        skip_tokenizer_init=skip_tokenizer_init,
-    )
     if max_model_len is None:
         max_model_len = max_num_batched_tokens
     scheduler_config = SchedulerConfig(
@@ -84,17 +76,28 @@ def create_scheduler(
         max_model_len=max_model_len,
         long_prefill_token_threshold=long_prefill_token_threshold,
         disable_chunked_mm_input=disable_chunked_mm_input,
-        enable_chunked_prefill=enable_chunked_prefill,
+        enable_chunked_prefill=True,
         async_scheduling=async_scheduling,
-        is_encoder_decoder=model_config.is_encoder_decoder,
+    )
+    model_config = ModelConfig(
+        model=model,
+        trust_remote_code=True,
+        dtype="float16",
+        seed=42,
+        skip_tokenizer_init=skip_tokenizer_init,
     )
     # Cache config, optionally force APC
+    kwargs_cache = (
+        {}
+        if enable_prefix_caching is None
+        else {"enable_prefix_caching": enable_prefix_caching}
+    )
     cache_config = CacheConfig(
         block_size=block_size,
         gpu_memory_utilization=0.9,
         swap_space=0,
         cache_dtype="auto",
-        enable_prefix_caching=enable_prefix_caching,
+        **kwargs_cache,
     )
     kv_transfer_config = None
     if isinstance(use_kv_connector, MockKVConfig):
@@ -108,7 +111,7 @@ def create_scheduler(
         )
     elif use_kv_connector:
         kv_transfer_config = KVTransferConfig(
-            kv_connector="ExampleConnector",
+            kv_connector="SharedStorageConnector",
             kv_role="kv_both",
             kv_connector_extra_config={"shared_storage_path": "local_storage"},
         )
@@ -121,7 +124,7 @@ def create_scheduler(
 
     ec_transfer_config = (
         ECTransferConfig(
-            ec_connector="ECExampleConnector",
+            ec_connector="ECSharedStorageConnector",
             ec_role=ec_role,
             ec_connector_extra_config={"shared_storage_path": "/tmp/ec_test"},
         )

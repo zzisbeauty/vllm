@@ -3,7 +3,6 @@
 
 import math
 
-import pytest
 import torch
 
 from tests.v1.attention.utils import (
@@ -12,15 +11,8 @@ from tests.v1.attention.utils import (
     try_get_attention_backend,
 )
 from vllm.attention.backends.registry import AttentionBackendEnum
-from vllm.attention.utils.fa_utils import is_flash_attn_varlen_func_available
 from vllm.config import ParallelConfig, SpeculativeConfig
 from vllm.v1.attention.backends.utils import CommonAttentionMetadata
-
-if not is_flash_attn_varlen_func_available():
-    pytest.skip(
-        "This test requires flash_attn_varlen_func, but it's not available.",
-        allow_module_level=True,
-    )
 
 
 class MockAttentionLayer(torch.nn.Module):
@@ -88,8 +80,8 @@ def forward_attention(
         query_start_loc=query_start_loc,
         query_start_loc_cpu=query_start_loc.cpu(),
         seq_lens=seq_lens,
-        _seq_lens_cpu=seq_lens.cpu(),
-        _num_computed_tokens_cpu=context_lens.cpu(),
+        seq_lens_cpu=seq_lens.cpu(),
+        num_computed_tokens_cpu=context_lens.cpu(),
         num_reqs=batch_size,
         num_actual_tokens=num_actual_tokens,
         max_query_len=max_query_len,

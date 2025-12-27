@@ -17,9 +17,7 @@ class ScaledMMLinearLayerConfig:
 class ScaledMMLinearKernel(ABC):
     @classmethod
     @abstractmethod
-    def is_supported(
-        cls, compute_capability: int | None = None
-    ) -> tuple[bool, str | None]:
+    def get_min_capability(cls) -> int:
         raise NotImplementedError
 
     @classmethod
@@ -37,7 +35,6 @@ class ScaledMMLinearKernel(ABC):
         azp_adj_param_name: str,
     ) -> None:
         assert self.can_implement(c)
-        assert self.is_supported()
         self.config = c
         self.w_q_name = w_q_param_name
         self.w_s_name = w_s_param_name

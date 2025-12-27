@@ -30,9 +30,6 @@ from vllm.model_executor.layers.quantization.kernels.mixed_precision.MPLinearKer
     MPLinearKernel,
     MPLinearLayerConfig,
 )
-from vllm.model_executor.layers.quantization.kernels.mixed_precision.xpu import (  # noqa: E501
-    XPUwNa16LinearKernel,
-)
 from vllm.platforms import current_platform
 
 # in priority/performance order (when available)
@@ -45,7 +42,6 @@ _POSSIBLE_KERNELS: list[type[MPLinearKernel]] = [
     BitBLASLinearKernel,
     ConchLinearKernel,
     ExllamaLinearKernel,
-    XPUwNa16LinearKernel,
 ]
 
 

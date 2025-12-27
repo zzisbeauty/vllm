@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+from collections.abc import Callable
 from typing import Any, Optional
 
 import torch
@@ -16,9 +17,6 @@ from vllm.model_executor.layers.fused_moe.layer import (
     FusedMoEConfig,
     FusedMoEMethodBase,
     FusedMoeWeightScaleSupported,
-)
-from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import (
-    UnquantizedFusedMoEMethod,
 )
 from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.quantization import QuantizationMethods
@@ -62,7 +60,7 @@ class MoeWNA16Config(QuantizationConfig):
 
         if self.linear_quant_method == "gptq":
             self.use_marlin = GPTQMarlinConfig.is_gptq_marlin_compatible(full_config)
-        elif self.linear_quant_method in ("awq", "awq_marlin"):
+        elif self.linear_quant_method == "awq":
             capability_tuple = current_platform.get_device_capability()
             device_capability = (
                 -1 if capability_tuple is None else capability_tuple.to_int()
@@ -109,7 +107,7 @@ class MoeWNA16Config(QuantizationConfig):
         if linear_quant_method == "gptq":
             has_zp = not cls.get_from_keys(config, ["sym"])
             modules_to_not_convert = []
-        elif linear_quant_method in ("awq", "awq_marlin"):
+        elif linear_quant_method == "awq":
             has_zp = cls.get_from_keys(config, ["zero_point"])
             modules_to_not_convert = cls.get_from_keys_or(
                 config, ["modules_to_not_convert"], None
@@ -165,8 +163,6 @@ class MoeWNA16Config(QuantizationConfig):
         self, layer: torch.nn.Module, prefix: str
     ) -> Optional["QuantizeMethodBase"]:
         if is_layer_skipped_quant(prefix, self.modules_to_not_convert):
-            if isinstance(layer, FusedMoE):
-                return UnquantizedFusedMoEMethod(layer.moe_config)
             return UnquantizedLinearMethod()
         elif isinstance(layer, LinearBase):
             # Avoid circular import
@@ -188,7 +184,7 @@ class MoeWNA16Config(QuantizationConfig):
                     return GPTQConfig.from_config(self.full_config).get_quant_method(
                         layer, prefix
                     )
-            elif self.linear_quant_method in ("awq", "awq_marlin"):
+            elif self.linear_quant_method == "awq":
                 if self.use_marlin and check_marlin_supports_layer(
                     layer, self.group_size
                 ):
@@ -363,16 +359,46 @@ class MoeWNA16Method(FusedMoEMethodBase):
 
     def apply(
         self,
-        layer: FusedMoE,
+        layer: torch.nn.Module,
         x: torch.Tensor,
         router_logits: torch.Tensor,
+        top_k: int,
+        renormalize: bool,
+        use_grouped_topk: bool = False,
+        topk_group: int | None = None,
+        num_expert_group: int | None = None,
+        global_num_experts: int = -1,
+        expert_map: torch.Tensor | None = None,
+        custom_routing_function: Callable | None = None,
+        scoring_func: str = "softmax",
+        routed_scaling_factor: float = 1.0,
+        e_score_correction_bias: torch.Tensor | None = None,
+        apply_router_weight_on_input: bool = False,
+        activation: str = "silu",
+        enable_eplb: bool = False,
+        expert_load_view: torch.Tensor | None = None,
+        logical_to_physical_map: torch.Tensor | None = None,
+        logical_replica_count: torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        if enable_eplb:
+            raise NotImplementedError("EPLB not supported for `MoeWNA16Method` yet.")
+
         from vllm.model_executor.layers.fused_moe import fused_experts
 
-        assert layer.activation == "silu", "Only SiLU activation is supported."
-        topk_weights, topk_ids, _ = layer.select_experts(
+        assert activation == "silu", "Only SiLU activation is supported."
+        topk_weights, topk_ids, _ = FusedMoE.select_experts(
             hidden_states=x,
             router_logits=router_logits,
+            use_grouped_topk=use_grouped_topk,
+            top_k=top_k,
+            renormalize=renormalize,
+            topk_group=topk_group,
+            num_expert_group=num_expert_group,
+            custom_routing_function=custom_routing_function,
+            scoring_func=scoring_func,
+            routed_scaling_factor=routed_scaling_factor,
+            e_score_correction_bias=e_score_correction_bias,
+            indices_type=self.topk_indices_dtype,
         )
 
         return fused_experts(
@@ -382,9 +408,9 @@ class MoeWNA16Method(FusedMoEMethodBase):
             topk_weights=topk_weights,
             topk_ids=topk_ids,
             inplace=True,
-            apply_router_weight_on_input=layer.apply_router_weight_on_input,
-            global_num_experts=layer.global_num_experts,
-            expert_map=layer.expert_map,
+            apply_router_weight_on_input=apply_router_weight_on_input,
+            global_num_experts=global_num_experts,
+            expert_map=expert_map,
             quant_config=self.moe_quant_config,
         )
 
@@ -455,8 +481,7 @@ class MoeWNA16Method(FusedMoEMethodBase):
             shard_size = layer.intermediate_size_per_partition
 
             # convert gptq and awq weight to a standard format
-            # awq_marlin uses the same weight format as awq
-            if layer.quant_config.linear_quant_method in ("awq", "awq_marlin"):
+            if layer.quant_config.linear_quant_method == "awq":
                 assert layer.quant_config.weight_bits == 4
                 if "weight" in weight_name:
                     loaded_weight = convert_awq_tensor(loaded_weight, "qweight")
