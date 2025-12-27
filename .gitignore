@@ -10,8 +10,6 @@ vllm/third_party/triton_kernels/*
 # triton jit
 .triton
 
-core.*
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
